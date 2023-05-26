@@ -1,0 +1,7 @@
+data
+model
+report.odt
+.~lock.report.odt#
+__pycache__
+*.pdf
+loss_graphs
