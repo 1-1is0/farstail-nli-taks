@@ -2,6 +2,7 @@ import os
 import tarfile
 from glob import glob
 
+import tabulate
 import albumentations as A
 import cv2
 import joblib
@@ -98,6 +99,7 @@ from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay
 
 
 def compute_loss(y, predictions, loss):
@@ -110,6 +112,7 @@ def compute_loss(y, predictions, loss):
     return loss, accuracy, precision, recall, f1
     
 def evaluate_loader(loader, model, criterion, device):
+    model.eval()
     # compute loss and accuracy for that loader
     metrics = {
         "loss": 0,
@@ -128,7 +131,7 @@ def evaluate_loader(loader, model, criterion, device):
             label_id = data["label_id"].to(device)
             logits, probs = model(input_ids, attention_mask, token_type_ids)
             loss = criterion(logits, label_id)
-            loss, accuracy, precision, recall, f1 = compute_loss(label_id, logits, loss)
+            loss, accuracy, precision, recall, f1 = compute_loss(label_id, probs, loss)
             # sum up metrics in dict
             metrics["loss"] += loss.item()
             metrics["accuracy"] += accuracy
@@ -140,7 +143,8 @@ def evaluate_loader(loader, model, criterion, device):
             metrics[k] /= len(loader)
         return metrics
 
-def show_cm(model, loader, device):
+def show_cm(model, loader, device, labels=None):
+    model.eval()
     y_true, y_pred = [], []
     with torch.no_grad():
         for i, data in enumerate(loader):
@@ -151,8 +155,18 @@ def show_cm(model, loader, device):
             label_id = data["label_id"].to(device)
             now_batch_size = label_id.size(0)
             logits, probs = model(input_ids, attention_mask, token_type_ids)
-            outputs = torch.argmax(logits, axis=1)
+            outputs = torch.argmax(probs, axis=1)
             y_true.extend(label_id.tolist())
             y_pred.extend(outputs.tolist())
-    cm = confusion_matrix(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
     return cm
+
+def plot_metrics(metrics):
+    data = [[k, v] for k, v in metrics.items()]
+    table = tabulate.tabulate(data, tablefmt='html', headers=["Metrics", "Value"])
+    return table
+
+def plot_cm(cm, labels):
+    cm_display = ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = labels)
+    cm_display.plot()
+    plt.show() 
