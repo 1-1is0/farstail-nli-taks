@@ -103,9 +103,10 @@ from sklearn.metrics import confusion_matrix
 def compute_loss(y, predictions, loss):
     # loss
     # binarize predictions from predictions (outputs = 1 if p>0.5 else 0)
-    outputs = (predictions>0.5).float()
+    outputs = torch.argmax(predictions, axis=1)
     # metrics with accuracy, precision, recall, f1
-    accuracy, precision, recall, f1 = [metric(y.cpu(), outputs.cpu()) for metric in [accuracy_score, precision_score, recall_score, f1_score]]
+    accuracy = accuracy_score(y.cpu(), outputs.cpu())
+    precision, recall, f1 = [metric(y.cpu(), outputs.cpu(), average="micro") for metric in [precision_score, recall_score, f1_score]]
     return loss, accuracy, precision, recall, f1
     
 def evaluate_loader(loader, model, criterion, device):
@@ -119,14 +120,15 @@ def evaluate_loader(loader, model, criterion, device):
     }
     with torch.no_grad():
         # loop over examples of loader
-        for i, (x, y) in enumerate(loader):
+        for i, data in enumerate(loader):
 
-            x = x.to_dense().reshape(x.shape[0], x.shape[-1]).to(torch.int)
-            x = x.to(device)
-            y = y.to(device)
-            prediction = model(x)
-            loss = criterion(prediction, y)
-            loss, accuracy, precision, recall, f1 = compute_loss(y, prediction, loss)
+            input_ids = data["input_ids"].to(device)
+            attention_mask = data["attention_mask"].to(device)
+            token_type_ids = data["token_type_ids"].to(device)
+            label_id = data["label_id"].to(device)
+            logits, probs = model(input_ids, attention_mask, token_type_ids)
+            loss = criterion(logits, label_id)
+            loss, accuracy, precision, recall, f1 = compute_loss(label_id, logits, loss)
             # sum up metrics in dict
             metrics["loss"] += loss.item()
             metrics["accuracy"] += accuracy
@@ -141,12 +143,16 @@ def evaluate_loader(loader, model, criterion, device):
 def show_cm(model, loader, device):
     y_true, y_pred = [], []
     with torch.no_grad():
-        for i, (x, y) in enumerate(loader):
-            x = x.to_dense().reshape(x.shape[0], x.shape[-1]).to(torch.int)
-            x = x.to(device)
-            predictions = model(x)
-            outputs = (predictions>0.5).float()
-            y_true.extend(y.tolist())
+        for i, data in enumerate(loader):
+
+            input_ids = data["input_ids"].to(device)
+            attention_mask = data["attention_mask"].to(device)
+            token_type_ids = data["token_type_ids"].to(device)
+            label_id = data["label_id"].to(device)
+            now_batch_size = label_id.size(0)
+            logits, probs = model(input_ids, attention_mask, token_type_ids)
+            outputs = torch.argmax(logits, axis=1)
+            y_true.extend(label_id.tolist())
             y_pred.extend(outputs.tolist())
     cm = confusion_matrix(y_true, y_pred)
     return cm
